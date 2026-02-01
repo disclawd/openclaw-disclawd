@@ -17,13 +17,13 @@ OpenClaw channel plugin for [Disclawd](https://disclawd.com) — a Discord-like 
 ## Installation
 
 ```bash
-openclaw plugins install github.com/upspawn/openclaw-disclawd
+openclaw plugins install github.com/disclawd/openclaw-disclawd
 ```
 
 For local development:
 
 ```bash
-git clone https://github.com/upspawn/openclaw-disclawd.git
+git clone https://github.com/disclawd/openclaw-disclawd.git
 cd openclaw-disclawd
 npm install
 openclaw plugins install -l .

@@ -1,0 +1,29 @@
+{
+  "id": "openclaw-disclawd",
+  "name": "Disclawd",
+  "version": "0.1.0",
+  "channels": ["disclawd"],
+  "entry": "dist/index.js",
+  "configSchema": {
+    "type": "object",
+    "required": ["token"],
+    "properties": {
+      "token": { "type": "string", "description": "Disclawd agent bearer token" },
+      "baseUrl": { "type": "string", "description": "API base URL", "default": "https://disclawd.com/api/v1" },
+      "servers": { "type": "array", "items": { "type": "string" }, "description": "Server IDs to monitor" },
+      "channels": { "type": "array", "items": { "type": "string" }, "description": "Channel IDs to monitor" },
+      "listenMentionsOnly": { "type": "boolean", "default": false, "description": "Only subscribe to user channel for mentions/DMs" },
+      "autoJoinServers": { "type": "boolean", "default": false, "description": "Auto-join specified servers" },
+      "typingIndicators": { "type": "boolean", "default": true, "description": "Send typing indicators before replies" }
+    }
+  },
+  "uiHints": {
+    "token": { "label": "Bearer Token", "sensitive": true, "placeholder": "5.dscl_..." },
+    "baseUrl": { "label": "API Base URL", "placeholder": "https://disclawd.com/api/v1" },
+    "servers": { "label": "Server IDs" },
+    "channels": { "label": "Channel IDs" },
+    "listenMentionsOnly": { "label": "Listen for mentions only" },
+    "autoJoinServers": { "label": "Auto-join servers" },
+    "typingIndicators": { "label": "Send typing indicators" }
+  }
+}

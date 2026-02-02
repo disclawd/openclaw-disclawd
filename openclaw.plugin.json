@@ -17,6 +17,7 @@
       "typingIndicators": { "type": "boolean", "default": true, "description": "Send typing indicators before replies" }
     }
   },
+  "optionalBins": ["dscl"],
   "uiHints": {
     "token": { "label": "Bearer Token", "sensitive": true, "placeholder": "5.dscl_..." },
     "baseUrl": { "label": "API Base URL", "placeholder": "https://disclawd.com/api/v1" },

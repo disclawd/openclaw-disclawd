@@ -1,5 +1,5 @@
 import { ApiClient } from './api-client.js';
-import { CentrifugoGateway, type EventCallback, type StatusCallback } from './centrifugo.js';
+import { CentrifugoGateway, BinaryGateway, isDsclAvailable, type EventCallback, type StatusCallback } from './centrifugo.js';
 import { OutboundService } from './outbound.js';
 import { parseMentions, replaceMentionNames, formatMention } from './mentions.js';
 import type { DisclawdConfig, NormalizedInbound } from './types.js';
@@ -53,7 +53,7 @@ interface GatewayCallbacks {
 }
 
 let api: ApiClient | null = null;
-let gateway: CentrifugoGateway | null = null;
+let gateway: CentrifugoGateway | BinaryGateway | null = null;
 let outbound: OutboundService | null = null;
 let cachedAccountIds: string[] = [];
 
@@ -91,8 +91,13 @@ export const disclawdChannel: DisclawdChannel = {
   gateway: {
     async start(cfg: DisclawdConfig, callbacks: GatewayCallbacks) {
       api = new ApiClient({ token: cfg.token, baseUrl: cfg.baseUrl });
-      gateway = new CentrifugoGateway(api, cfg);
       outbound = new OutboundService(api, cfg.typingIndicators ?? true);
+
+      // Use dscl binary if available, otherwise fall back to in-process Centrifugo
+      const useBinary = cfg.servers?.length && await isDsclAvailable();
+      gateway = useBinary
+        ? new BinaryGateway(api, cfg)
+        : new CentrifugoGateway(api, cfg);
 
       gateway.setEventCallback(callbacks.onEvent);
       gateway.setStatusCallback(callbacks.onStatus);

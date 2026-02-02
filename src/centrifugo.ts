@@ -1,9 +1,12 @@
+import { spawn, type ChildProcess } from 'node:child_process';
+import { createInterface } from 'node:readline';
 import { Centrifuge, Subscription } from 'centrifuge';
 import WebSocket from 'ws';
 import { ApiClient } from './api-client.js';
 import { mapEvent, type MapperContext, type MappedEvent } from './event-mapper.js';
 import type {
   CentrifugoEnvelope,
+  CentrifugoEventName,
   DisclawdConfig,
   TokenResponse,
   NormalizedInbound,
@@ -119,7 +122,13 @@ export class CentrifugoGateway {
     const channelList = Array.from(this.requestedChannels);
     this.tokenResponse = await this.api.getEventToken(channelList);
 
-    this.client = new Centrifuge(this.tokenResponse.websocket_endpoint, {
+    // The token endpoint returns the uni_websocket URL, but centrifuge-js
+    // uses the bidirectional protocol. Replace uni_websocket → websocket.
+    const wsEndpoint = this.tokenResponse.websocket_endpoint.replace(
+      '/uni_websocket',
+      '/websocket',
+    );
+    this.client = new Centrifuge(wsEndpoint, {
       token: this.tokenResponse.token,
       websocket: WebSocket as any,
       getToken: async () => {
@@ -163,5 +172,133 @@ export class CentrifugoGateway {
         this.addChannel(result.autoSubscribe).catch(() => {});
       }
     });
+  }
+}
+
+// ── dscl binary gateway ──
+
+export async function isDsclAvailable(): Promise<boolean> {
+  try {
+    const proc = spawn('dscl', ['--help'], { stdio: 'ignore' });
+    return new Promise((resolve) => {
+      proc.on('error', () => resolve(false));
+      proc.on('close', (code) => resolve(code === 0));
+    });
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Spawns the `dscl` binary with `--raw` and reads full Centrifugo envelopes
+ * from its stdout. Falls back to CentrifugoGateway if the process fails.
+ */
+export class BinaryGateway {
+  private proc: ChildProcess | null = null;
+  private myUserId = '';
+  private mapperCtx: MapperContext = { myUserId: '', accountId: '' };
+  private onEvent: EventCallback = () => {};
+  private onStatus: StatusCallback = () => {};
+
+  constructor(
+    private readonly api: ApiClient,
+    private readonly config: DisclawdConfig,
+  ) {}
+
+  setEventCallback(cb: EventCallback): void {
+    this.onEvent = cb;
+  }
+
+  setStatusCallback(cb: StatusCallback): void {
+    this.onStatus = cb;
+  }
+
+  getMyUserId(): string {
+    return this.myUserId;
+  }
+
+  async start(): Promise<void> {
+    // Get agent identity for the mapper context
+    const me = await this.api.getMe();
+    this.myUserId = me.id;
+    this.mapperCtx = { myUserId: me.id, accountId: me.id };
+
+    const serverId = this.config.servers?.[0];
+    if (!serverId) {
+      throw new Error('BinaryGateway requires at least one server ID');
+    }
+
+    const args = [
+      '--token', this.config.token,
+      '--server', serverId,
+      '--raw',
+    ];
+
+    if (this.config.baseUrl) {
+      args.push('--base-url', this.config.baseUrl);
+    }
+
+    this.proc = spawn('dscl', args, {
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+
+    this.proc.on('error', (err) => {
+      this.onStatus('disconnected', `dscl spawn error: ${err.message}`);
+    });
+
+    this.proc.on('close', (code) => {
+      this.onStatus('disconnected', `dscl exited with code ${code}`);
+      this.proc = null;
+    });
+
+    // Read stderr for status messages
+    if (this.proc.stderr) {
+      const stderrRl = createInterface({ input: this.proc.stderr });
+      stderrRl.on('line', (line) => {
+        if (line.includes('websocket connected')) {
+          this.onStatus('connected');
+        } else if (line.includes('websocket disconnected')) {
+          this.onStatus('disconnected', line);
+        }
+      });
+    }
+
+    // Read stdout for raw JSON envelope lines
+    if (this.proc.stdout) {
+      const stdoutRl = createInterface({ input: this.proc.stdout });
+      stdoutRl.on('line', (line) => {
+        try {
+          const raw = JSON.parse(line) as {
+            event: CentrifugoEventName;
+            payload: unknown;
+            channel: string;
+          };
+          const envelope: CentrifugoEnvelope = {
+            event: raw.event,
+            payload: raw.payload,
+          };
+          const result = mapEvent(envelope, this.mapperCtx, raw.channel);
+          if (!result) return;
+          this.onEvent(result.normalized);
+        } catch {
+          // Ignore malformed lines
+        }
+      });
+    }
+  }
+
+  async stop(): Promise<void> {
+    if (this.proc) {
+      this.proc.kill('SIGTERM');
+      this.proc = null;
+    }
+  }
+
+  async addChannel(_channel: string): Promise<void> {
+    // dscl auto-discovers channels; no-op here
+  }
+
+  async removeChannel(_channel: string): Promise<void> {
+    // dscl manages its own subscriptions; no-op here
   }
 }

@@ -46,7 +46,7 @@ export class CentrifugoGateway {
     // 1. Get agent identity
     const me = await this.api.getMe();
     this.myUserId = me.id;
-    this.mapperCtx = { myUserId: me.id, accountId: me.id };
+    this.mapperCtx = { myUserId: me.id, accountId: me.id, safetyWrap: this.config.safetyWrap };
 
     // 2. Build channel list
     this.requestedChannels.clear();
@@ -221,7 +221,7 @@ export class BinaryGateway {
     // Get agent identity for the mapper context
     const me = await this.api.getMe();
     this.myUserId = me.id;
-    this.mapperCtx = { myUserId: me.id, accountId: me.id };
+    this.mapperCtx = { myUserId: me.id, accountId: me.id, safetyWrap: this.config.safetyWrap };
 
     const serverId = this.config.servers?.[0];
     if (!serverId) {

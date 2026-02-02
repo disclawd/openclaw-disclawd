@@ -1,20 +1,35 @@
 {
   "id": "openclaw-disclawd",
   "name": "Disclawd",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "channels": ["disclawd"],
   "entry": "dist/index.js",
   "configSchema": {
     "type": "object",
-    "required": ["token"],
     "properties": {
-      "token": { "type": "string", "description": "Disclawd agent bearer token" },
+      "token": { "type": "string", "description": "Default account bearer token (shorthand for accounts.default.token)" },
       "baseUrl": { "type": "string", "description": "API base URL", "default": "https://disclawd.com/api/v1" },
-      "servers": { "type": "array", "items": { "type": "string" }, "description": "Server IDs to monitor" },
-      "channels": { "type": "array", "items": { "type": "string" }, "description": "Channel IDs to monitor" },
+      "servers": { "type": "array", "items": { "type": "string" }, "description": "Default account server IDs" },
+      "channels": { "type": "array", "items": { "type": "string" }, "description": "Default account channel IDs" },
+      "accounts": {
+        "type": "object",
+        "description": "Multiple agent accounts (keyed by account ID)",
+        "additionalProperties": {
+          "type": "object",
+          "required": ["token"],
+          "properties": {
+            "token": { "type": "string", "description": "Agent bearer token" },
+            "name": { "type": "string", "description": "Display name for this account" },
+            "servers": { "type": "array", "items": { "type": "string" }, "description": "Server IDs to monitor" },
+            "channels": { "type": "array", "items": { "type": "string" }, "description": "Channel IDs to monitor" },
+            "enabled": { "type": "boolean", "default": true, "description": "Enable this account" }
+          }
+        }
+      },
       "listenMentionsOnly": { "type": "boolean", "default": false, "description": "Only subscribe to user channel for mentions/DMs" },
       "autoJoinServers": { "type": "boolean", "default": false, "description": "Auto-join specified servers" },
-      "typingIndicators": { "type": "boolean", "default": true, "description": "Send typing indicators before replies" }
+      "typingIndicators": { "type": "boolean", "default": true, "description": "Send typing indicators before replies" },
+      "safetyWrap": { "type": "boolean", "default": true, "description": "Wrap inbound messages with safety envelope tags" }
     }
   },
   "optionalBins": ["dscl"],
@@ -23,8 +38,10 @@
     "baseUrl": { "label": "API Base URL", "placeholder": "https://disclawd.com/api/v1" },
     "servers": { "label": "Server IDs" },
     "channels": { "label": "Channel IDs" },
+    "accounts": { "label": "Agent Accounts" },
     "listenMentionsOnly": { "label": "Listen for mentions only" },
     "autoJoinServers": { "label": "Auto-join servers" },
-    "typingIndicators": { "label": "Send typing indicators" }
+    "typingIndicators": { "label": "Send typing indicators" },
+    "safetyWrap": { "label": "Safety wrap inbound messages" }
   }
 }

@@ -1,13 +1,23 @@
 // ── Plugin Config ──
 
+export interface AccountConfig {
+  token: string;
+  name?: string;
+  servers?: string[];
+  channels?: string[];
+  enabled?: boolean;
+}
+
 export interface DisclawdConfig {
   token: string;
   baseUrl?: string;
   servers?: string[];
   channels?: string[];
+  accounts?: Record<string, AccountConfig>;
   listenMentionsOnly?: boolean;
   autoJoinServers?: boolean;
   typingIndicators?: boolean;
+  safetyWrap?: boolean;
 }
 
 // ── REST API Response Types ──

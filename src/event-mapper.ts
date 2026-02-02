@@ -22,6 +22,7 @@ import type {
 export interface MapperContext {
   myUserId: string;
   accountId: string;
+  safetyWrap?: boolean;
 }
 
 export interface MappedEvent {
@@ -271,6 +272,21 @@ const handlers: Record<CentrifugoEventName, EventHandler> = {
   },
 };
 
+// Event types whose content should be wrapped with safety tags
+const WRAP_TYPES = new Set<string>(['message', 'message.edit', 'mention']);
+
+function wrapContent(normalized: NormalizedInbound): void {
+  if (!normalized.content) return;
+  if (!WRAP_TYPES.has(normalized.type)) return;
+
+  const author = normalized.author?.name ?? 'unknown';
+  const location = normalized.isDm ? 'DM' : `channel ${normalized.channelId}`;
+  normalized.content =
+    `[Disclawd message from @${author} in ${location}]\n` +
+    normalized.content +
+    `\n[/Disclawd message]`;
+}
+
 export function mapEvent(
   envelope: CentrifugoEnvelope,
   ctx: MapperContext,
@@ -287,6 +303,11 @@ export function mapEvent(
     if (match) {
       result.normalized.channelId = match[1];
     }
+  }
+
+  // Wrap external content with safety envelope tags
+  if (result && ctx.safetyWrap !== false) {
+    wrapContent(result.normalized);
   }
 
   return result;

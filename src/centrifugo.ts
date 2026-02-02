@@ -59,9 +59,13 @@ export class CentrifugoGateway {
             await this.api.joinServer(serverId).catch(() => {}); // ignore if already joined
           }
           this.requestedChannels.add(`server.${serverId}`);
-          const { data: channels } = await this.api.getServerChannels(serverId);
-          for (const ch of channels) {
-            this.requestedChannels.add(`channel.${ch.id}`);
+          try {
+            const { data: channels } = await this.api.getServerChannels(serverId);
+            for (const ch of channels) {
+              this.requestedChannels.add(`channel.${ch.id}`);
+            }
+          } catch {
+            // Server may be inaccessible; continue with server-level subscription only
           }
         }
       }
@@ -98,7 +102,6 @@ export class CentrifugoGateway {
     this.tokenResponse = tok;
 
     // Add subscription
-    const prefixed = tok.channels.find((c) => c.endsWith(channel.replace(/^(channel|server|thread|user)\./, '.$1.')));
     const subName = `private-${channel}`;
     if (!this.subscriptions.has(subName) && this.client) {
       const sub = this.client.newSubscription(subName);
@@ -161,16 +164,24 @@ export class CentrifugoGateway {
 
   private wireSubscription(sub: Subscription, channel: string): void {
     sub.on('publication', (ctx) => {
-      const data = ctx.data as CentrifugoEnvelope;
-      const result = mapEvent(data, this.mapperCtx, channel);
-      if (!result) return;
+      try {
+        const data = ctx.data as CentrifugoEnvelope;
+        const result = mapEvent(data, this.mapperCtx, channel);
+        if (!result) return;
 
-      this.onEvent(result.normalized);
+        this.onEvent(result.normalized);
 
-      // Handle auto-subscribe requests (new threads, new DMs)
-      if (result.autoSubscribe) {
-        this.addChannel(result.autoSubscribe).catch(() => {});
+        // Handle auto-subscribe requests (new threads, new DMs)
+        if (result.autoSubscribe) {
+          this.addChannel(result.autoSubscribe).catch(() => {});
+        }
+      } catch (err) {
+        console.error(`[disclawd] Error processing event on ${channel}:`, err);
       }
+    });
+
+    sub.on('error', (ctx) => {
+      console.error(`[disclawd] Subscription error on ${channel}:`, ctx);
     });
   }
 }
@@ -195,6 +206,8 @@ export async function isDsclAvailable(): Promise<boolean> {
  */
 export class BinaryGateway {
   private proc: ChildProcess | null = null;
+  private stdoutRl: ReturnType<typeof createInterface> | null = null;
+  private stderrRl: ReturnType<typeof createInterface> | null = null;
   private myUserId = '';
   private mapperCtx: MapperContext = { myUserId: '', accountId: '' };
   private onEvent: EventCallback = () => {};
@@ -253,8 +266,8 @@ export class BinaryGateway {
 
     // Read stderr for status messages
     if (this.proc.stderr) {
-      const stderrRl = createInterface({ input: this.proc.stderr });
-      stderrRl.on('line', (line) => {
+      this.stderrRl = createInterface({ input: this.proc.stderr });
+      this.stderrRl.on('line', (line) => {
         if (line.includes('websocket connected')) {
           this.onStatus('connected');
         } else if (line.includes('websocket disconnected')) {
@@ -265,14 +278,19 @@ export class BinaryGateway {
 
     // Read stdout for raw JSON envelope lines
     if (this.proc.stdout) {
-      const stdoutRl = createInterface({ input: this.proc.stdout });
-      stdoutRl.on('line', (line) => {
+      this.stdoutRl = createInterface({ input: this.proc.stdout });
+      this.stdoutRl.on('line', (line) => {
+        let raw;
         try {
-          const raw = JSON.parse(line) as {
+          raw = JSON.parse(line) as {
             event: CentrifugoEventName;
             payload: unknown;
             channel: string;
           };
+        } catch {
+          return; // Ignore malformed JSON lines
+        }
+        try {
           const envelope: CentrifugoEnvelope = {
             event: raw.event,
             payload: raw.payload,
@@ -280,17 +298,35 @@ export class BinaryGateway {
           const result = mapEvent(envelope, this.mapperCtx, raw.channel);
           if (!result) return;
           this.onEvent(result.normalized);
-        } catch {
-          // Ignore malformed lines
+        } catch (err) {
+          console.error('[disclawd] Error processing dscl event:', err);
         }
       });
     }
   }
 
   async stop(): Promise<void> {
+    this.stdoutRl?.close();
+    this.stderrRl?.close();
+    this.stdoutRl = null;
+    this.stderrRl = null;
+
     if (this.proc) {
-      this.proc.kill('SIGTERM');
+      const proc = this.proc;
       this.proc = null;
+      proc.kill('SIGTERM');
+
+      // Wait for process to exit, with a timeout and SIGKILL fallback
+      await new Promise<void>((resolve) => {
+        const timeout = setTimeout(() => {
+          proc.kill('SIGKILL');
+          resolve();
+        }, 5_000);
+        proc.on('close', () => {
+          clearTimeout(timeout);
+          resolve();
+        });
+      });
     }
   }
 

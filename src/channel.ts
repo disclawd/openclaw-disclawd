@@ -134,7 +134,13 @@ export const disclawdChannel: DisclawdChannel = {
       if (!entry) throw new Error('No account configured');
 
       const client = new ApiClient({ token: entry.token, baseUrl: cfg.baseUrl });
-      const me = await client.getMe();
+      let me;
+      try {
+        me = await client.getMe();
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        throw new Error(`Failed to resolve Disclawd account "${entry.accountId}": ${msg}`);
+      }
       return {
         id: me.id,
         accountId: entry.accountId,
@@ -157,33 +163,53 @@ export const disclawdChannel: DisclawdChannel = {
         dsclAvailable = await isDsclAvailable();
       }
 
+      const errors: Array<{ accountId: string; error: Error }> = [];
+
       for (const entry of entries) {
-        const api = new ApiClient({ token: entry.token, baseUrl: cfg.baseUrl });
-        const outbound = new OutboundService(api, cfg.typingIndicators ?? true);
+        try {
+          const api = new ApiClient({ token: entry.token, baseUrl: cfg.baseUrl });
+          const outbound = new OutboundService(api, cfg.typingIndicators ?? true);
 
-        const accountCfg: DisclawdConfig = {
-          ...cfg,
-          token: entry.token,
-          servers: entry.servers,
-          channels: entry.channels,
-          safetyWrap: cfg.safetyWrap,
-        };
+          const accountCfg: DisclawdConfig = {
+            ...cfg,
+            token: entry.token,
+            servers: entry.servers,
+            channels: entry.channels,
+            safetyWrap: cfg.safetyWrap,
+          };
 
-        const useBinary = entry.servers?.length && dsclAvailable;
-        const gateway = useBinary
-          ? new BinaryGateway(api, accountCfg)
-          : new CentrifugoGateway(api, accountCfg);
+          const useBinary = entry.servers?.length && dsclAvailable;
+          const gateway = useBinary
+            ? new BinaryGateway(api, accountCfg)
+            : new CentrifugoGateway(api, accountCfg);
 
-        gateway.setEventCallback((event) => {
-          // Ensure accountId matches the account key, not the Disclawd user ID
-          callbacks.onEvent({ ...event, accountId: entry.accountId });
-        });
-        gateway.setStatusCallback(callbacks.onStatus);
+          gateway.setEventCallback((event) => {
+            try {
+              // Ensure accountId matches the account key, not the Disclawd user ID
+              callbacks.onEvent({ ...event, accountId: entry.accountId });
+            } catch (err) {
+              console.error(`[disclawd] Error in event callback for account "${entry.accountId}":`, err);
+            }
+          });
+          gateway.setStatusCallback(callbacks.onStatus);
 
-        await gateway.start();
+          await gateway.start();
 
-        const userId = gateway.getMyUserId();
-        runtimes.set(entry.accountId, { api, gateway, outbound, userId, accountId: entry.accountId });
+          const userId = gateway.getMyUserId();
+          runtimes.set(entry.accountId, { api, gateway, outbound, userId, accountId: entry.accountId });
+        } catch (err) {
+          const error = err instanceof Error ? err : new Error(String(err));
+          errors.push({ accountId: entry.accountId, error });
+          callbacks.onStatus('disconnected', `Account "${entry.accountId}" failed to start: ${error.message}`);
+        }
+      }
+
+      // If ALL accounts failed, throw so the gateway reports an error.
+      // If only some failed, keep running with the ones that succeeded.
+      if (runtimes.size === 0 && errors.length > 0) {
+        throw new Error(
+          `All Disclawd accounts failed to start:\n${errors.map((e) => `  ${e.accountId}: ${e.error.message}`).join('\n')}`,
+        );
       }
     },
 
@@ -208,7 +234,14 @@ export const disclawdChannel: DisclawdChannel = {
           description: credentials.description,
         }),
       });
+      if (!res.ok) {
+        const text = await res.text().catch(() => '');
+        throw new Error(`Agent registration failed (${res.status}): ${text}`);
+      }
       const data = await res.json();
+      if (!data.token) {
+        throw new Error('Agent registration response missing token');
+      }
       return { token: data.token };
     },
   },

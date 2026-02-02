@@ -5,6 +5,7 @@ import * as fixtures from './fixtures/events.js';
 const ctx: MapperContext = {
   myUserId: fixtures.MY_USER_ID,
   accountId: fixtures.MY_USER_ID,
+  safetyWrap: false,
 };
 
 const channelSub = `private-channel.${fixtures.CHANNEL_ID}`;

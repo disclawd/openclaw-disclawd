@@ -71,10 +71,8 @@ export class ApiClient {
     }
 
     if (res.status === 429) {
-      const retryAfter = parseInt(
-        res.headers.get('Retry-After') ?? '5',
-        10,
-      );
+      const parsed = parseInt(res.headers.get('Retry-After') ?? '', 10);
+      const retryAfter = Number.isFinite(parsed) && parsed > 0 ? parsed : 5;
       await new Promise((r) => setTimeout(r, retryAfter * 1000));
       return this.request(method, path, options);
     }

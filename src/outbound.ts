@@ -90,7 +90,12 @@ export class OutboundService {
         ? this.api.sendThreadTyping(target).catch(() => {})
         : this.api.sendTyping(target).catch(() => {});
 
-    await send();
+    // Don't let typing indicator failures prevent message sending
+    try {
+      await send();
+    } catch {
+      return;
+    }
 
     // Re-send typing every 7s to keep the indicator alive
     const timer = setInterval(send, TYPING_INTERVAL_MS);

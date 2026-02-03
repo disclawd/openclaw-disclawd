@@ -87,6 +87,7 @@ export class CentrifugoGateway {
     }
     this.subscriptions.clear();
     this.requestedChannels.clear();
+    this.client?.removeAllListeners();
     this.client?.disconnect();
     this.client = null;
   }
@@ -135,20 +136,33 @@ export class CentrifugoGateway {
       token: this.tokenResponse.token,
       websocket: WebSocket as any,
       getToken: async () => {
-        const tok = await this.api.getEventToken(
-          Array.from(this.requestedChannels),
-        );
-        this.tokenResponse = tok;
-        return tok.token;
+        try {
+          const tok = await this.api.getEventToken(
+            Array.from(this.requestedChannels),
+          );
+          this.tokenResponse = tok;
+          return tok.token;
+        } catch (err) {
+          console.error('[disclawd] Failed to refresh Centrifugo token:', err);
+          throw err;
+        }
       },
     });
 
     this.client.on('connected', () => {
-      this.onStatus('connected');
+      try { this.onStatus('connected'); } catch (err) {
+        console.error('[disclawd] Error in status callback:', err);
+      }
     });
 
     this.client.on('disconnected', (ctx) => {
-      this.onStatus('disconnected', ctx.reason);
+      try { this.onStatus('disconnected', ctx.reason); } catch (err) {
+        console.error('[disclawd] Error in status callback:', err);
+      }
+    });
+
+    this.client.on('error', (ctx) => {
+      console.error('[disclawd] Centrifuge client error:', ctx);
     });
 
     // Create subscriptions for all authorized channels
@@ -173,7 +187,9 @@ export class CentrifugoGateway {
 
         // Handle auto-subscribe requests (new threads, new DMs)
         if (result.autoSubscribe) {
-          this.addChannel(result.autoSubscribe).catch(() => {});
+          this.addChannel(result.autoSubscribe).catch((err) => {
+            console.error(`[disclawd] Failed to auto-subscribe to ${result.autoSubscribe}:`, err);
+          });
         }
       } catch (err) {
         console.error(`[disclawd] Error processing event on ${channel}:`, err);
@@ -256,11 +272,11 @@ export class BinaryGateway {
     });
 
     this.proc.on('error', (err) => {
-      this.onStatus('disconnected', `dscl spawn error: ${err.message}`);
+      try { this.onStatus('disconnected', `dscl spawn error: ${err.message}`); } catch {}
     });
 
     this.proc.on('close', (code) => {
-      this.onStatus('disconnected', `dscl exited with code ${code}`);
+      try { this.onStatus('disconnected', `dscl exited with code ${code}`); } catch {}
       this.proc = null;
     });
 
@@ -268,11 +284,18 @@ export class BinaryGateway {
     if (this.proc.stderr) {
       this.stderrRl = createInterface({ input: this.proc.stderr });
       this.stderrRl.on('line', (line) => {
-        if (line.includes('websocket connected')) {
-          this.onStatus('connected');
-        } else if (line.includes('websocket disconnected')) {
-          this.onStatus('disconnected', line);
+        try {
+          if (line.includes('websocket connected')) {
+            this.onStatus('connected');
+          } else if (line.includes('websocket disconnected')) {
+            this.onStatus('disconnected', line);
+          }
+        } catch (err) {
+          console.error('[disclawd] Error in status callback:', err);
         }
+      });
+      this.stderrRl.on('error', (err) => {
+        console.error('[disclawd] stderr readline error:', err);
       });
     }
 
@@ -302,6 +325,9 @@ export class BinaryGateway {
           console.error('[disclawd] Error processing dscl event:', err);
         }
       });
+      this.stdoutRl.on('error', (err) => {
+        console.error('[disclawd] stdout readline error:', err);
+      });
     }
   }
 
@@ -314,15 +340,21 @@ export class BinaryGateway {
     if (this.proc) {
       const proc = this.proc;
       this.proc = null;
+
+      // If already exited, nothing to do
+      if (proc.exitCode !== null || proc.killed) {
+        return;
+      }
+
       proc.kill('SIGTERM');
 
       // Wait for process to exit, with a timeout and SIGKILL fallback
       await new Promise<void>((resolve) => {
         const timeout = setTimeout(() => {
-          proc.kill('SIGKILL');
+          try { proc.kill('SIGKILL'); } catch {}
           resolve();
         }, 5_000);
-        proc.on('close', () => {
+        proc.once('close', () => {
           clearTimeout(timeout);
           resolve();
         });

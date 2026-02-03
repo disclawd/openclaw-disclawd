@@ -33,9 +33,9 @@ export class ApiClient {
   private async request<T>(
     method: string,
     path: string,
-    options: { body?: unknown; rateLimitKey?: string; rateLimitMax?: number } = {},
+    options: { body?: unknown; rateLimitKey?: string; rateLimitMax?: number; _retries?: number } = {},
   ): Promise<T> {
-    const { body, rateLimitKey, rateLimitMax } = options;
+    const { body, rateLimitKey, rateLimitMax, _retries = 0 } = options;
 
     // Wait for global rate limit slot
     await this.limiter.waitForSlot('global', LIMITS.GLOBAL);
@@ -71,10 +71,13 @@ export class ApiClient {
     }
 
     if (res.status === 429) {
+      if (_retries >= 3) {
+        throw new ApiError(429, 'Rate limited after 3 retries', path);
+      }
       const parsed = parseInt(res.headers.get('Retry-After') ?? '', 10);
       const retryAfter = Number.isFinite(parsed) && parsed > 0 ? parsed : 5;
       await new Promise((r) => setTimeout(r, retryAfter * 1000));
-      return this.request(method, path, options);
+      return this.request(method, path, { ...options, _retries: _retries + 1 });
     }
 
     if (res.status === 204) {

@@ -1,7 +1,7 @@
 {
-  "id": "openclaw-disclawd",
+  "id": "disclawd",
   "name": "Disclawd",
-  "version": "0.2.0",
+  "version": "0.2.5",
   "channels": ["disclawd"],
   "entry": "dist/index.js",
   "configSchema": {

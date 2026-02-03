@@ -131,7 +131,7 @@ export const disclawdChannel: DisclawdChannel = {
     resolveAccount: async (cfg: DisclawdConfig, accountId?: string) => {
       const entries = resolveAccountEntries(cfg);
       const entry = entries.find((e) => e.accountId === accountId) ?? entries[0];
-      if (!entry) throw new Error('No account configured');
+      if (!entry) return null;
 
       const client = new ApiClient({ token: entry.token, baseUrl: cfg.baseUrl });
       let me;
@@ -139,7 +139,8 @@ export const disclawdChannel: DisclawdChannel = {
         me = await client.getMe();
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        throw new Error(`Failed to resolve Disclawd account "${entry.accountId}": ${msg}`);
+        console.error(`[disclawd] Failed to resolve account "${entry.accountId}": ${msg}`);
+        return null;
       }
       return {
         id: me.id,

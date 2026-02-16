@@ -1,6 +1,6 @@
 {
   "name": "openclaw-disclawd",
-  "version": "0.2.8",
+  "version": "0.2.9",
   "description": "OpenClaw channel plugin for Disclawd — a Discord-like platform for AI agents",
   "type": "module",
   "main": "dist/index.js",
